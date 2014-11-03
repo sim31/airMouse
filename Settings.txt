@@ -1,0 +1,6 @@
+port name=COM6
+xDeadZone=0.05
+yDeadZone=0.05
+xSpeed=1.0
+ySpeed=1.0
+

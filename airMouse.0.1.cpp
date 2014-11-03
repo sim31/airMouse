@@ -374,6 +374,7 @@ void MyLoop()
 		std::istringstream stream;
 		YawPitchRoll prevAngle;
 		YawPitchRoll currAngle;
+		double yawDiff, rollDiff, pitchDiff;
 		double x, y, z;
 		gLog.Write("Initializing MPU-6050");
 		ReadLine(serial, line, 4, 10);
@@ -441,18 +442,24 @@ void MyLoop()
 			if (prevAngle != currAngle && prevAngle != YawPitchRoll())		//if there is movement and not the first
 			{
 //				x = (currAngle.yaw - prevAngle.yaw) * settings.xPerYaw;
-				double yawDiff = currAngle.yaw - prevAngle.yaw;
-				double rollDiff = currAngle.roll - prevAngle.roll;
-				double pitchDiff = currAngle.pitch - prevAngle.pitch;
+				yawDiff += currAngle.yaw - prevAngle.yaw;
+				rollDiff += currAngle.roll - prevAngle.roll;
+				pitchDiff += currAngle.pitch - prevAngle.pitch;
 
 //				if (abs(pitchDiff) > 0.05)
 					z += pitchDiff;
 //				else
 	//			{
 					if (abs(yawDiff) > settings.xDeadZone)
+					{
 						x += yawDiff * 30 * settings.xSpeed;
+						yawDiff = 0;
+					}
 					if (abs(rollDiff) > settings.yDeadZone)
+					{
 						y += rollDiff * -20 * settings.ySpeed;
+						rollDiff = 0;
+					}
 	//			}
 				
 	//			if (z > 10)

@@ -68,7 +68,8 @@ void				MyLoop();
 bool				Check();		//check run and calls DestroyWindow if not
 void				WaitForCalm();
 double				GetInputInterval(AirSerial & serial);		//discard some inputs and returns interval between inputs from arduino (seconds)
-void				PressLeft();	//press left mouse button
+void				LeftMouseBt(bool down);	//if down = true - button down event if false - released
+void				RightMouseBt(bool down);
 int					ReadLine(AirSerial & serial, std::string & buff, int chToRead, double waitTime);
 double				GetBiggestInputInterval(AirSerial & serial);
 
@@ -113,7 +114,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 				DispatchMessage(&msg);
 			}
 		}
-		if (run())		//means window was destroyed and we need to stop other thread
+		if (run())		//means window was destroyed and we need to stop other thread (other thread stops program by sending destroy message)
 			run.Set(false);
 	}
 
@@ -236,6 +237,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (lParam == QUIT_HOTKEY_ID)
 		{
 			gLog.Write("Terminated by user (ctrl+q pressed)");
+			Notification("AirMouse quiting...");
 			DestroyWindow(hWnd);
 			break;
 		}
@@ -244,6 +246,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (LOWORD(wParam) == EXIT_ID)
 		{
 			gLog.Write("Terminated by user");
+			Notification("AirMouse quiting...");
 			DestroyWindow(hWnd);	//sends WM_DESTROY message
 			break;
 		}
@@ -374,6 +377,8 @@ void MyLoop()
 		std::istringstream stream;
 		YawPitchRoll prevAngle;
 		YawPitchRoll currAngle;
+		bool buttonStates[3];
+		bool prevButtonStates[3];
 		double yawDiff, rollDiff, pitchDiff;
 		double x, y, z;
 		gLog.Write("Initializing MPU-6050");
@@ -425,6 +430,9 @@ void MyLoop()
 			//}
 
 			stream >> currAngle.yaw >> currAngle.pitch >> currAngle.roll;
+			//get button states
+			for (int i = 0; i < 3; i++)
+				stream >> buttonStates[i];
 			if (!stream.good())
 			{
 				gLog.Write(stream.str());
@@ -457,7 +465,7 @@ void MyLoop()
 					}
 					if (abs(rollDiff) > settings.yDeadZone)
 					{
-						y += rollDiff * -20 * settings.ySpeed;
+						y += rollDiff * -30 * settings.ySpeed;
 						rollDiff = 0;
 					}
 	//			}
@@ -485,7 +493,19 @@ void MyLoop()
 				}
 			}
 			prevAngle = currAngle;
-			//	
+
+			//act upon button events
+			if (prevAngle != YawPitchRoll())		//if not first time in loop
+			{
+				if (prevButtonStates[0] != buttonStates[0])
+					LeftMouseBt(!buttonStates[0]);
+				if (prevButtonStates[1] != buttonStates[1])
+					RightMouseBt(!buttonStates[1]);
+			}
+			for (int i = 0; i < 3; i++)
+				prevButtonStates[i] = buttonStates[i];
+
+
 		}
 	}
 	catch (AirSerial::WaitedTooLong & err)
@@ -565,12 +585,24 @@ double GetBiggestInputInterval(AirSerial & serial)
 }
 
 
-void PressLeft()
+void LeftMouseBt(bool down)
 {
-	input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+	
 	input.mi.dx = input.mi.dy = 0;
+	if (down)
+		input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+	else
+		input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
 	Input(&input);
-	input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+}
+
+void RightMouseBt(bool down)
+{
+	input.mi.dx = input.mi.dy = 0;
+	if (down)
+		input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+	else
+		input.mi.dwFlags = MOUSEEVENTF_RIGHTUP;
 	Input(&input);
 }
 

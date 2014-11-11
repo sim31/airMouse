@@ -139,6 +139,9 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
+int buttonPins[3] = {5, 6, 7};
+//int buttonStates[3];
+
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
@@ -189,12 +192,19 @@ void setup() {
     devStatus = mpu.dmpInitialize();
 
   // supply your own gyro offsets here, scaled for min sensitivity
-    mpu.setXGyroOffset(62);
-    mpu.setYGyroOffset(62);
-    mpu.setZGyroOffset(-57);
-    mpu.setXAccelOffset(-1300);
-    mpu.setYAccelOffset(512);
-    mpu.setZAccelOffset(20000);
+    mpu.setXGyroOffset(49);
+    mpu.setYGyroOffset(-8);
+    mpu.setZGyroOffset(-47);
+    mpu.setXAccelOffset(-1588);
+    mpu.setYAccelOffset(323);
+    mpu.setZAccelOffset(972);
+    
+   //setup buttons
+   for (int i = 0; i < 3; i++)
+   {
+     pinMode(buttonPins[i], INPUT);
+     digitalWrite(buttonPins[i], HIGH);
+   }
     
 //  Serial.println("alskdjflaskjflkkajs;lfjaslkfj");
     SetupComm();
@@ -302,7 +312,12 @@ void loop()
              Serial.print(" ");
              Serial.print(ypr[1] * 180/M_PI);
              Serial.print(" ");
-             Serial.println(ypr[2] * 180/M_PI);
+             Serial.print(ypr[2] * 180/M_PI);
+             Serial.print(" ");
+             
+             //print button states
+             PrintButtonStates();
+             Serial.println("");
          
         #endif
 
@@ -412,4 +427,14 @@ bool CheckConnection()
     return true;
 }
  
+void PrintButtonStates()
+{
+    int state;
+    for (int i = 0; i < 3; i++)
+    {
+      state = digitalRead(buttonPins[i]);
+      Serial.print(state);
+      Serial.print(" ");
+    }
+}
   

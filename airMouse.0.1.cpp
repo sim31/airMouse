@@ -17,7 +17,7 @@
 #define SETTINGS_ID 3
 #define EXIT_ID 2
 #define TRAY_ID 1
-#define QUIT_HOTKEY_ID 1
+#define QUIT_HOTKEY_ID 4
 
 struct Settings
 {
@@ -234,27 +234,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_HOTKEY:
 	{
-		if (lParam == QUIT_HOTKEY_ID)
-		{
-			gLog.Write("Terminated by user (ctrl+q pressed)");
-			Notification("AirMouse quiting...");
-			DestroyWindow(hWnd);
-			break;
-		}
+		gLog.Write("Terminated by user (ctrl+q pressed)");
+		Notification("AirMouse quiting...");
+		Sleep(2500);
+		DestroyWindow(hWnd);
+		break;
 	}
 	case WM_COMMAND:
 		if (LOWORD(wParam) == EXIT_ID)
 		{
 			gLog.Write("Terminated by user");
 			Notification("AirMouse quiting...");
+			Sleep(2000);
 			DestroyWindow(hWnd);	//sends WM_DESTROY message
-			break;
 		}
 		else if (LOWORD(wParam) == SETTINGS_ID)
 		{
 			system("notepad Settings.txt");
-			break;
 		}
+		break;
 	case WM_DESTROY:
 		Shell_NotifyIcon(NIM_DELETE, &iconData);
 		DestroyIcon(iconData.hIcon);
@@ -375,11 +373,9 @@ void MyLoop()
 		double timeSinceLog = 0;
 		gTimer.GetCurrTime();
 		std::istringstream stream;
-		YawPitchRoll prevAngle;
-		YawPitchRoll currAngle;
+		YawPitchRoll angle;
 		bool buttonStates[3];
 		bool prevButtonStates[3];
-		double yawDiff, rollDiff, pitchDiff;
 		double x, y, z;
 		gLog.Write("Initializing MPU-6050");
 		ReadLine(serial, line, 4, 10);
@@ -429,7 +425,7 @@ void MyLoop()
 			//	throw std::runtime_error("Bad input from serial port.");
 			//}
 
-			stream >> currAngle.yaw >> currAngle.pitch >> currAngle.roll;
+			stream >> angle.yaw >> angle.pitch >> angle.roll;
 			//get button states
 			for (int i = 0; i < 3; i++)
 				stream >> buttonStates[i];
@@ -447,61 +443,35 @@ void MyLoop()
 			tSinceLogT = gTimer.GetCurrTime();
 
 			//CHANGES//
-			if (prevAngle != currAngle && prevAngle != YawPitchRoll())		//if there is movement and not the first
-			{
-//				x = (currAngle.yaw - prevAngle.yaw) * settings.xPerYaw;
-				yawDiff += currAngle.yaw - prevAngle.yaw;
-				rollDiff += currAngle.roll - prevAngle.roll;
-				pitchDiff += currAngle.pitch - prevAngle.pitch;
+			z += angle.pitch;
+			x += angle.yaw * 30 * settings.xSpeed;
+			y += angle.roll * -30 * settings.ySpeed;
 
-//				if (abs(pitchDiff) > 0.05)
-					z += pitchDiff;
-//				else
-	//			{
-					if (abs(yawDiff) > settings.xDeadZone)
-					{
-						x += yawDiff * 30 * settings.xSpeed;
-						yawDiff = 0;
-					}
-					if (abs(rollDiff) > settings.yDeadZone)
-					{
-						y += rollDiff * -30 * settings.ySpeed;
-						rollDiff = 0;
-					}
-	//			}
-				
-	//			if (z > 10)
-	//			{
-	//				z = 0;
-	//				PressLeft();
-	//				x = y = 0.0;
-	//			}
-				if (abs(x) >= 1 || abs(y) >= 1)
-				{
-					POINT pos;
-					GetCursorPos(&pos);
-					if (pos.x + x > xScreen)
-						x = xScreen;
-					else if (pos.x + x < 1)
-						x = 1;
-					if (pos.y + y > yScreen)
-						y = yScreen;
-					else if (pos.y + y < 1)
-						y = 1;
-					MoveCursor(x, y);
-					x = y = 0.0;
-				}
-			}
-			prevAngle = currAngle;
-
-			//act upon button events
-			if (prevAngle != YawPitchRoll())		//if not first time in loop
+			if (abs(x) >= 1 || abs(y) >= 1)
 			{
-				if (prevButtonStates[0] != buttonStates[0])
-					LeftMouseBt(!buttonStates[0]);
-				if (prevButtonStates[1] != buttonStates[1])
-					RightMouseBt(!buttonStates[1]);
+				POINT pos;
+				GetCursorPos(&pos);
+				if (pos.x + x > xScreen)
+					x = xScreen;
+				else if (pos.x + x < 1)
+					x = 1;
+				if (pos.y + y > yScreen)
+					y = yScreen;
+				else if (pos.y + y < 1)
+					y = 1;
+				MoveCursor(x, y);
+				if (abs(x) >= 1)
+					x = 0.0;
+				if (abs(y) >= 1)
+					y = 0.0;
 			}
+
+
+			if (prevButtonStates[0] != buttonStates[0])
+				LeftMouseBt(!buttonStates[0]);
+			if (prevButtonStates[1] != buttonStates[1])
+				RightMouseBt(!buttonStates[1]);
+
 			for (int i = 0; i < 3; i++)
 				prevButtonStates[i] = buttonStates[i];
 

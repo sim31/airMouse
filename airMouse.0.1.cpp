@@ -363,6 +363,7 @@ void MyLoop()
 		char ch = 'w';
 		std::ostringstream deadzoneStr;
 		deadzoneStr << ch << settings.xDeadZone << '\n' << settings.yDeadZone << '\n';
+		gLog.Write(deadzoneStr.str());
 		char cStr[50];
 		strcpy_s(cStr, 50, deadzoneStr.str().c_str());
 		serial.WriteData(cStr, 50);	//wake arduino //and send deadzones
@@ -423,7 +424,9 @@ void MyLoop()
 				break;
 			}
 
-			Sleep(iInterval * 1000);
+			double timePassed = gTimer.GetCurrTime() - tSinceLine;
+			if (timePassed < iInterval)
+				Sleep((iInterval - timePassed) * 1000);
 			ReadLine(serial, line, 400, 15);
 			tSinceClick += gTimer.GetCurrTime() - tSinceLine;
 			tSinceLine = gTimer.GetCurrTime();

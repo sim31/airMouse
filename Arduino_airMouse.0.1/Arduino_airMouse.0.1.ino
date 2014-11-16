@@ -125,6 +125,7 @@ void GetButtonStates();
 void SavePrevData();
 void CalculateDiffs();
 bool WaitForWakeUp();
+void Reset();
 int loopNo = 0;
 float xDeadzone, yDeadzone;
 float diffs[3];
@@ -193,8 +194,6 @@ unsigned long long lastClickTime = 0;
 
 void loop()
 {
-    // if programming failed, don't try to do anything
-    if (!dmpReady) return;
     
     //if program on pc does not respond
     timeSinceCheck = millis() - prevCheckTime;
@@ -204,13 +203,13 @@ void loop()
       prevCheckTime = millis();
       if (!dontTest && !CheckConnection())
       {
-        dontTest = true;
-        SetupComm();    //try making connection again 
+        Reset();
         prevCheckTime = millis();
       }
     }
-    else
-      dontTest = false;
+      
+    // if programming failed, don't try to do anything
+    if (!dmpReady) return;
 
     // wait for MPU interrupt or extra packet(s) available
     while (!mpuInterrupt && fifoCount < packetSize) {
@@ -413,5 +412,22 @@ void CalculateDiffs()
 {
     for (int i = 0; i < 3; i++)
         diffs[i] += (ypr[i] - prevYpr[i]) * 180/M_PI;
+}
+
+void Reset()
+{
+  // initialize device
+    mpu.initialize();
+    // load and configure the DMP
+    devStatus = mpu.dmpInitialize();
+
+  // supply your own gyro offsets here, scaled for min sensitivity
+    mpu.setXGyroOffset(49);
+    mpu.setYGyroOffset(-8);
+    mpu.setZGyroOffset(-47);
+    mpu.setXAccelOffset(-1588);
+    mpu.setYAccelOffset(323);
+    mpu.setZAccelOffset(972);
+    SetupComm();
 }
   

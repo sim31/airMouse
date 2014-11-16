@@ -39,6 +39,8 @@ struct YawPitchRoll
 	bool operator!=(YawPitchRoll ang2) { return (yaw != ang2.yaw || pitch != ang2.pitch || roll != ang2.roll); }
 };
 
+enum Modes { DEFAULT, SCROLLING };
+
 // Global Variables:
 HINSTANCE hInst;								// current instance
 TCHAR szTitle[MAX_LOADSTRING];					// The title bar text
@@ -72,6 +74,7 @@ void				LeftMouseBt(bool down);	//if down = true - button down event if false - 
 void				RightMouseBt(bool down);
 int					ReadLine(AirSerial & serial, std::string & buff, int chToRead, double waitTime);
 double				GetBiggestInputInterval(AirSerial & serial);
+void MouseWheel(int ammount);	//ammount - ammount of movement
 
 int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -345,6 +348,8 @@ void MyLoop()
 {
 	try
 	{
+
+		Modes mode = DEFAULT;
 		std::string line;
 		gLog.Write("Reading settings file");
 		GetSettings(settings);
@@ -356,7 +361,11 @@ void MyLoop()
 		serial.Unbuffer();
 		gLog.Write("Port opened. Checking communications");
 		char ch = 'w';
-		serial.WriteData(&ch, 1);	//wake arduino
+		std::ostringstream deadzoneStr;
+		deadzoneStr << ch << settings.xDeadZone << '\n' << settings.yDeadZone << '\n';
+		char cStr[50];
+		strcpy_s(cStr, 50, deadzoneStr.str().c_str());
+		serial.WriteData(cStr, 50);	//wake arduino //and send deadzones
 		ReadLine(serial, line, 20, 5);
 		if (line != recognitionCode)
 		{
@@ -374,8 +383,8 @@ void MyLoop()
 		gTimer.GetCurrTime();
 		std::istringstream stream;
 		YawPitchRoll angle;
-		bool buttonStates[3];
-		bool prevButtonStates[3];
+		bool buttonStates[3] = { 1, 1, 1 };
+		bool prevButtonStates[3] = { 1, 1, 1 };
 		double x, y, z;
 		gLog.Write("Initializing MPU-6050");
 		ReadLine(serial, line, 4, 10);
@@ -398,6 +407,7 @@ void MyLoop()
 		//WaitForCalm();
 		double iInterval = GetInputInterval(serial);
 		double tSinceLine, time, tSinceLogT;
+		double tSinceClick = 10000.0;	//time since left click;
 		serial.Unbuffer();
 		gTimer.GetCurrTime();
 		Notification("Start using airMouse");
@@ -415,6 +425,7 @@ void MyLoop()
 
 			Sleep(iInterval * 1000);
 			ReadLine(serial, line, 400, 15);
+			tSinceClick += gTimer.GetCurrTime() - tSinceLine;
 			tSinceLine = gTimer.GetCurrTime();
 
 			stream.str(line);
@@ -442,35 +453,54 @@ void MyLoop()
 			}
 			tSinceLogT = gTimer.GetCurrTime();
 
-			//CHANGES//
-			z += angle.pitch;
-			x += angle.yaw * 30 * settings.xSpeed;
-			y += angle.roll * -30 * settings.ySpeed;
 
-			if (abs(x) >= 1 || abs(y) >= 1)
+			if (mode == DEFAULT)
 			{
-				POINT pos;
-				GetCursorPos(&pos);
-				if (pos.x + x > xScreen)
-					x = xScreen;
-				else if (pos.x + x < 1)
-					x = 1;
-				if (pos.y + y > yScreen)
-					y = yScreen;
-				else if (pos.y + y < 1)
-					y = 1;
-				MoveCursor(x, y);
-				if (abs(x) >= 1)
-					x = 0.0;
-				if (abs(y) >= 1)
-					y = 0.0;
+				z += angle.pitch;
+				x += angle.yaw * 30 * settings.xSpeed;
+				y += angle.roll * -30 * settings.ySpeed;
+
+				if (tSinceClick > 0.2 && (abs(x) >= 1 || abs(y) >= 1))
+				{
+					POINT pos;
+					GetCursorPos(&pos);
+					if (pos.x + x > xScreen)
+						x = xScreen;
+					else if (pos.x + x < 1)
+						x = 1;
+					if (pos.y + y > yScreen)
+						y = yScreen;
+					else if (pos.y + y < 1)
+						y = 1;
+					MoveCursor(x, y);
+					if (abs(x) >= 1)
+						x = 0.0;
+					if (abs(y) >= 1)
+						y = 0.0;
+				}
+			}
+			else if (abs(angle.roll) > settings.yDeadZone)
+			{
+				int ammount = angle.roll * 120;
+				MouseWheel(ammount);
 			}
 
 
 			if (prevButtonStates[0] != buttonStates[0])
+			{
+				tSinceClick = 0.0;
 				LeftMouseBt(!buttonStates[0]);
+			}
 			if (prevButtonStates[1] != buttonStates[1])
 				RightMouseBt(!buttonStates[1]);
+
+			if (prevButtonStates[2] != buttonStates[2])
+			{
+				if (buttonStates[2] == true)
+					mode = DEFAULT;
+				else
+					mode = SCROLLING;
+			}
 
 			for (int i = 0; i < 3; i++)
 				prevButtonStates[i] = buttonStates[i];
@@ -588,4 +618,12 @@ int ReadLine(AirSerial & serial, std::string & buff, int chToRead, double waitTi
 	}
 
 	return chRead;
+}
+
+void MouseWheel(int ammount)
+{
+	input.mi.dx = input.mi.dy = 0;
+	input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+	input.mi.mouseData = ammount;
+	Input(&input);
 }

@@ -124,9 +124,11 @@ void PrintButtonStates();
 void GetButtonStates();
 void SavePrevData();
 void CalculateDiffs();
+bool WaitForWakeUp();
 int loopNo = 0;
-float deadzone = 0.05;
+float xDeadzone, yDeadzone;
 float diffs[3];
+bool sleep = false;
 
 
 // ================================================================
@@ -186,6 +188,7 @@ void setup() {
 unsigned long long checkInterval = 10000;
 unsigned long long timeSinceCheck = 0;
 unsigned long long prevCheckTime = 0;
+unsigned long long lastClickTime = 0;
 
 
 void loop()
@@ -203,6 +206,7 @@ void loop()
       {
         dontTest = true;
         SetupComm();    //try making connection again 
+        prevCheckTime = millis();
       }
     }
     else
@@ -252,17 +256,28 @@ void loop()
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
         
-        CalculateDiffs();
-        
         GetButtonStates();
+        
+        //make it sleep if third buttong was clicked twice
+        if (buttonStates[2] == 0 && prevButtonStates[2] == 1)
+        {
+          if (millis() - lastClickTime < 500)
+          {
+           // WaitForWakeUp();
+            lastClickTime = 0;
+          }
+          lastClickTime = millis();
+        }
+        
+        CalculateDiffs();
         
         if (loopNo < 5 || HasChanged())
         {        
-          Serial.print(ypr[0] * 180/M_PI);
+          Serial.print(diffs[0]);
           Serial.print(" ");
-          Serial.print(ypr[1] * 180/M_PI);
+          Serial.print(diffs[1]);
           Serial.print(" ");
-          Serial.print(ypr[2] * 180/M_PI);
+          Serial.print(diffs[2]);
           Serial.print(" ");
              
           //print button states
@@ -272,6 +287,10 @@ void loop()
           if (loopNo < 6)
             loopNo++;
             
+          if (abs(diffs[0]) > xDeadzone)
+            diffs[0] = 0;
+          if (abs(diffs[2]) > yDeadzone)
+            diffs[2] = 0;
         }
         
         SavePrevData();
@@ -287,6 +306,16 @@ void SetupComm()
     char ch;
     while (Serial.available() && Serial.read()); // empty buffer
     while (!Serial.available() || Serial.read() != 'w');                 // wait for data
+    
+    //get deadzones
+    String str = "";
+    char buff[20];
+    Serial.readBytesUntil('\n', buff, 20);
+    str += buff;
+    xDeadzone = str.toFloat();
+    Serial.readBytesUntil('\n', buff, 20);
+    str = buff;
+    yDeadzone = str.toFloat();
     
     // send recognition code and wait for ready
     Serial.println("air.0.1-ypr");
@@ -372,18 +401,17 @@ bool HasChanged()
       if (prevButtonStates[i] != buttonStates[i])
         return true;
     }
-    
-    for (int i = 0; i < 3; i++)
-    {
-      if (abs(diffs[i]) >= deadzone)
-        return true;
-    }
+       
+    if (abs(diffs[0]) > xDeadzone)
+      return true;
+    if (abs(diffs[2]) > yDeadzone)
+      return true;
     return false;
 }
 
 void CalculateDiffs()
 {
     for (int i = 0; i < 3; i++)
-      diffs[i] = ypr[i] - prevYpr[i];
+        diffs[i] += (ypr[i] - prevYpr[i]) * 180/M_PI;
 }
   

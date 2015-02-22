@@ -1,47 +1,7 @@
-// I2C device class (I2Cdev) demonstration Arduino sketch for MPU6050 class using DMP (MotionApps v2.0)
-// 6/21/2012 by Jeff Rowberg <jeff@rowberg.net>
-// Updates should (hopefully) always be available at https://github.com/jrowberg/i2cdevlib
-//
-// Changelog:
-//      2013-05-08 - added seamless Fastwire support
-//                 - added note about gyro calibration
-//      2012-06-21 - added note about Arduino 1.0.1 + Leonardo compatibility error
-//      2012-06-20 - improved FIFO overflow handling and simplified read process
-//      2012-06-19 - completely rearranged DMP initialization code and simplification
-//      2012-06-13 - pull gyro and accel data from FIFO packet instead of reading directly
-//      2012-06-09 - fix broken FIFO read sequence and change interrupt detection to RISING
-//      2012-06-05 - add gravity-compensated initial reference frame acceleration output
-//                 - add 3D math helper file to DMP6 example sketch
-//                 - add Euler output and Yaw/Pitch/Roll output formats
-//      2012-06-04 - remove accel offset clearing for better results (thanks Sungon Lee)
-//      2012-06-01 - fixed gyro sensitivity to be 2000 deg/sec instead of 250
-//      2012-05-30 - basic DMP initialization working
-
-/* ============================================
-I2Cdev device library code is placed under the MIT license
-Copyright (c) 2012 Jeff Rowberg
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-===============================================
-*/
-
-
+// arduino>>bluetooth
+// D11   >>>  Rx
+// D10   >>>  Tx
+#include <SoftwareSerial.h>
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
 #include "I2Cdev.h"
@@ -102,6 +62,8 @@ int buttonPins[3] = {5, 6, 7};
 int buttonStates[3];
 int prevButtonStates[3];
 
+SoftwareSerial serial(10, 11); // RX, TX
+
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
@@ -118,13 +80,12 @@ void dmpDataReady() {
 
 void SetupComm();    //setups communication with airMouse program in pc
 bool CheckConnection();
-bool dontTest = false;
 bool HasChanged();
 void PrintButtonStates();
 void GetButtonStates();
 void SavePrevData();
 void CalculateDiffs();
-bool WaitForWakeUp();
+void WaitForWakeUp();
 void Reset();
 int loopNo = 0;
 float xDeadzone, yDeadzone;
@@ -148,8 +109,9 @@ void setup() {
     // initialize serial communication
     // (115200 chosen because it is required for Teapot Demo output, but it's
     // really up to you depending on your project)
-    Serial.begin(115200);
-    while (!Serial); // wait for Leonardo enumeration, others continue immediately
+ //  Serial.begin(115200);
+     serial.begin(115200);
+    //while (!Serial); // wait for Leonardo enumeration, others continue immediately
 
     // NOTE: 8MHz or slower host processors, like the Teensy @ 3.3v or Ardunio
     // Pro Mini running at 3.3v, cannot handle this baud rate reliably due to
@@ -161,6 +123,32 @@ void setup() {
     mpu.initialize();
     // load and configure the DMP
     devStatus = mpu.dmpInitialize();
+    
+    if (devStatus == 0) {
+        // turn on the DMP, now that it's ready
+        mpu.setDMPEnabled(true);
+       
+        // enable Arduino interrupt detection
+        attachInterrupt(0, dmpDataReady, RISING);
+        mpuIntStatus = mpu.getIntStatus();
+
+        // set our DMP Ready flag so the main loop() function knows it's okay to use it
+       // Serial.println(F("ok"));
+        dmpReady = true;
+
+        // get expected DMP packet size for later comparison
+        packetSize = mpu.dmpGetFIFOPacketSize();
+      } else {
+          // ERROR!
+          // 1 = initial memory load failed
+          // 2 = DMP configuration updates failed
+          // (if it's going to break, usually the code will be 1)
+          serial.println(F("err1"));
+          serial.print(devStatus);
+          serial.println(F(")"));
+        }
+   // configure LED for output
+    pinMode(LED_PIN, OUTPUT);
 
   // supply your own gyro offsets here, scaled for min sensitivity
     mpu.setXGyroOffset(49);
@@ -177,7 +165,7 @@ void setup() {
      digitalWrite(buttonPins[i], HIGH);
    }
     
-//  Serial.println("alskdjflaskjflkkajs;lfjaslkfj");
+//  serial.println("alskdjflaskjflkkajs;lfjaslkfj");
     SetupComm();
 }
 
@@ -201,12 +189,26 @@ void loop()
     {
       timeSinceCheck = 0;
       prevCheckTime = millis();
-      if (!dontTest && !CheckConnection())
+      if (!CheckConnection())
       {
         Reset();
         prevCheckTime = millis();
       }
     }
+    
+    GetButtonStates();
+    //make it sleep if third buttong was clicked twice
+     if (buttonStates[2] == 0 && prevButtonStates[2] == 1)
+     {
+        if (millis() - lastClickTime < 1000)
+        {
+          WaitForWakeUp();
+          prevCheckTime = millis();
+          lastClickTime = 0;
+        }
+        else 
+          lastClickTime = millis();
+     }
       
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
@@ -255,33 +257,21 @@ void loop()
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
         
-        GetButtonStates();
-        
-        //make it sleep if third buttong was clicked twice
-        if (buttonStates[2] == 0 && prevButtonStates[2] == 1)
-        {
-          if (millis() - lastClickTime < 500)
-          {
-           // WaitForWakeUp();
-            lastClickTime = 0;
-          }
-          lastClickTime = millis();
-        }
         
         CalculateDiffs();
         
         if (loopNo < 5 || HasChanged())
         {        
-          Serial.print(diffs[0]);
-          Serial.print(" ");
-          Serial.print(diffs[1]);
-          Serial.print(" ");
-          Serial.print(diffs[2]);
-          Serial.print(" ");
+          serial.print(diffs[0]);
+          serial.print(" ");
+          serial.print(diffs[1]);
+          serial.print(" ");
+          serial.print(diffs[2]);
+          serial.print(" ");
              
           //print button states
           PrintButtonStates();
-          Serial.println("");
+          serial.println("");
           
           if (loopNo < 6)
             loopNo++;
@@ -303,56 +293,35 @@ void loop()
 void SetupComm()
 {
     char ch;
-    while (Serial.available() && Serial.read()); // empty buffer
-    while (!Serial.available() || Serial.read() != 'w');                 // wait for data
+    static bool was = false;
+    serial.println("something");
+    while (serial.available() && serial.read()); // empty buffer
+    while (!serial.available() || serial.read() != 'w');                 // wait for data
     
     //get deadzones
     String str = "";
     char buff[20];
-    Serial.readBytesUntil('\n', buff, 20);
-    str += buff;
-    xDeadzone = str.toFloat();
-    Serial.readBytesUntil('\n', buff, 20);
+    serial.readBytesUntil('\n', buff, 20);
     str = buff;
-    yDeadzone = str.toFloat();
-    
+   // serial.println(buff);
+    /*xDeadzone = str.toFloat();
+    serial.readBytesUntil('\n', buff, 20);
+    //serial.println(buff);
+    str = buff;
+    yDeadzone = str.toFloat();*/
+    yDeadzone = xDeadzone = 0.05;
     // send recognition code and wait for ready
-    Serial.println("air.0.1-ypr");
-
-    // make sure it worked (returns 0 if so)
-    if (devStatus == 0) {
-        // turn on the DMP, now that it's ready
-        mpu.setDMPEnabled(true);
-
-        // enable Arduino interrupt detection
-        attachInterrupt(0, dmpDataReady, RISING);
-        mpuIntStatus = mpu.getIntStatus();
-
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        Serial.println(F("ok"));
-        dmpReady = true;
-
-        // get expected DMP packet size for later comparison
-        packetSize = mpu.dmpGetFIFOPacketSize();
-    } else {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
-        Serial.println(F("err1"));
-        Serial.print(devStatus);
-        Serial.println(F(")"));
-    }
-
-    // configure LED for output
-    pinMode(LED_PIN, OUTPUT);
+    serial.println("air.0.1-ypr");
+   // make sure it worked (returns 0 if so)
+    //serial.println(str);
+    serial.println("ok");
     
-    while (!Serial.available() || Serial.read() != 'r'); // empty buffer again
+    while (!serial.available() || serial.read() != 'r'); // empty buffer again
 }
 
 bool CheckConnection()
 {
-  Serial.print("c\r\n");
+  serial.print("c\r\n");
   char ch;
   unsigned long time = millis();
   unsigned long timePassed = 0;
@@ -360,7 +329,7 @@ bool CheckConnection()
   {
     timePassed += millis() - time;
     time = millis();
-    Serial.readBytes(&ch, 1);
+    serial.readBytes(&ch, 1);
   }
   if (timePassed >= 5000)
     return false;
@@ -382,8 +351,8 @@ void PrintButtonStates()
 {
     for (int i = 0; i < 3; i++)
     {
-      Serial.print(buttonStates[i]);
-      Serial.print(" ");
+      serial.print(buttonStates[i]);
+      serial.print(" ");
     }
 }
 
@@ -416,18 +385,46 @@ void CalculateDiffs()
 
 void Reset()
 {
-  // initialize device
-    mpu.initialize();
-    // load and configure the DMP
-    devStatus = mpu.dmpInitialize();
-
-  // supply your own gyro offsets here, scaled for min sensitivity
-    mpu.setXGyroOffset(49);
-    mpu.setYGyroOffset(-8);
-    mpu.setZGyroOffset(-47);
-    mpu.setXAccelOffset(-1588);
-    mpu.setYAccelOffset(323);
-    mpu.setZAccelOffset(972);
+    mpu.setSleepEnabled(true);
     SetupComm();
+    mpu.setSleepEnabled(false);
+    mpu.resetFIFO();
+    loopNo = 0;
 }
-  
+
+void WaitForWakeUp()
+{
+   mpu.setSleepEnabled(true);
+   lastClickTime = 0;
+   bool wait = true;
+   while (wait)
+   {
+      GetButtonStates();
+      if (buttonStates[2] == 0 && prevButtonStates[2] == 1)
+      {
+        if (millis() - lastClickTime < 1000)
+        {
+          wait = false;
+         // serial.println("woke up");
+          lastClickTime = 0;
+          mpu.setSleepEnabled(false);
+          mpu.resetFIFO();
+        }
+        else
+          lastClickTime = millis();
+      }
+      //if program on pc does not respond
+      timeSinceCheck = millis() - prevCheckTime;
+      if (timeSinceCheck > checkInterval)
+      {
+        timeSinceCheck = 0;
+        prevCheckTime = millis();
+        if (!CheckConnection())
+        {
+          Reset();
+          prevCheckTime = millis();
+          wait = false;    //begin from the start
+        }
+      }
+   }
+}
